@@ -1,2 +1,2 @@
 # HMoE
-Coming soon...
+Coming soon... deadline: 17.12, sorry))
