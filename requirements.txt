@@ -1,0 +1,12 @@
+numpy
+torch
+torchvision
+torchmetrics
+torchinfo
+transformers
+datasets
+peft
+xformers
+evaluate
+flash-attn
+datasets
