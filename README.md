@@ -1,3 +1,4 @@
-# HMoE
-Finally pushed))
-If you want to get code for financial data analysis let me know
+Usage:
+- In Jupyter, you should use hmoe_vis.ipynb.
+- hmoe_vis.ipynb primarily uses hmoe_nlp.py, where the hyperparameters are located.
+- test_hmoe_nlp.py was used for the main tests and graph generation.
