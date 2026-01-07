@@ -93,6 +93,32 @@ def extend_mask_for_learnable_vectors(original_mask, num_learnable_vectors):
     return extended_mask
 
 
+def extend_mask_for_memory_vectors(original_mask, num_memory_vectors):
+    """
+    Расширяет маску для обучаемых векторов (без транзитивности)
+
+    Args:
+        original_mask: исходная маска [batch_size, seq_len, seq_len]
+        num_learnable_vectors: количество обучаемых векторов
+
+    Returns:
+        Расширенная маска [batch_size, new_seq_len, new_seq_len]
+    """
+    dims = original_mask.shape
+    new_seq_len = dims[-1] + num_memory_vectors
+
+    # Обучаемые векторы видят только друг друга
+    extended_mask = torch.full(dims[:-2] + (new_seq_len, new_seq_len),
+                               float('-inf'), device=original_mask.device)
+
+    # Обычные токены видят все обучаемые векторы
+    extended_mask[..., :, -num_memory_vectors:] = 0
+
+    extended_mask[..., :-num_memory_vectors, :-num_memory_vectors] = original_mask
+
+    return extended_mask
+
+
 def extend_mask_full_attention(original_mask, num_vectors):
     """
     Расширяет маску с полным вниманием для дополнительных векторов
@@ -174,4 +200,12 @@ if __name__ == "__main__":
 
     extended_combined = extend_mask_for_learnable_vectors(combined, num_learnable_vectors=2)
     print('\n6. extended_combined')
+    print(extended_combined, extended_combined.shape)
+
+    extended_combined = extend_mask_for_memory_vectors(combined, num_memory_vectors=2)
+    print('\n7. memory_combined')
+    print(extended_combined, extended_combined.shape)
+
+    extended_combined = extend_mask_for_memory_vectors(causal_mask, num_memory_vectors=2)
+    print('\n8. casual memory_combined')
     print(extended_combined, extended_combined.shape)

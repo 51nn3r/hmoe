@@ -1,0 +1,72 @@
+big:
+# d_model = 768
+    mem_vectors = 64
+    d_model = 128
+    dim_feedforward = d_model * 4
+    num_heads = 4
+    train_size = 1000
+    batch_size = 8
+    # time_steps = 256
+    time_steps = 64
+    top_k = 4
+    lr = 5e-4
+
+    data_module = HMoEDataModule(
+        dataset_name="roneneldan/TinyStories",
+        max_length=time_steps,
+        batch_size=batch_size,
+        device=device,
+    )
+    data_module.setup()
+    dataloader = data_module.get_dataloader()
+    test_dataloader = data_module.get_test_dataloader()
+
+    print('[*] init model')
+    inner_model, experts_storage = HierarchicalMoE.create_hierarchical_moe(
+        experts_count=100,
+        chain_sizes=[4, 16, 64],
+        top_k=top_k,
+        tau=0.25,
+        num_heads=num_heads,
+        mem_vectors=mem_vectors,
+        d_model=d_model,
+        dim_feedforward=dim_feedforward,
+    )
+
+
+
+
+small_mem:
+# d_model = 768
+    mem_vectors = 64
+    d_model = 128
+    dim_feedforward = d_model * 4
+    num_heads = 4
+    train_size = 1000
+    batch_size = 8
+    # time_steps = 256
+    time_steps = 64
+    top_k = 4
+    lr = 5e-4
+
+    data_module = HMoEDataModule(
+        dataset_name="roneneldan/TinyStories",
+        max_length=time_steps,
+        batch_size=batch_size,
+        device=device,
+    )
+    data_module.setup()
+    dataloader = data_module.get_dataloader()
+    test_dataloader = data_module.get_test_dataloader()
+
+    print('[*] init model')
+    inner_model, experts_storage = HierarchicalMoE.create_hierarchical_moe(
+        experts_count=100,
+        chain_sizes=[4, 8, 16],
+        top_k=top_k,
+        tau=0.25,
+        num_heads=num_heads,
+        mem_vectors=mem_vectors,
+        d_model=d_model,
+        dim_feedforward=dim_feedforward,
+    )

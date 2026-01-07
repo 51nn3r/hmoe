@@ -6,6 +6,7 @@ import torch
 from torch import nn
 
 from gm.hmoe.experts_storage import ExpertsStorage
+from gm.hmoe.scenario import Scenario
 from gm.utils.masking import extend_mask_for_learnable_vectors
 
 
@@ -18,6 +19,7 @@ class HMoeComponent(nn.Module):
     prev_hmoe: HMoeComponent | None
     prev_hmoe_chian_size: int | None
     trainable_vectors: nn.Parameter | None
+    _level: int | None
 
     def __init__(
             self,
@@ -37,6 +39,7 @@ class HMoeComponent(nn.Module):
         self.trainable_vectors = None
 
         self.d_model = d_model
+        self._level = None
 
         self._built = False
 
@@ -65,3 +68,9 @@ class HMoeComponent(nn.Module):
     def forward(self, x):
         if not self._built:
             self._build(x)
+
+    def recompute_by_scenario(self, scenario: Scenario, level=0, position=0) -> Scenario | None:
+        if not self._built:
+            self._build(scenario.latents[0][0])
+
+        return None

@@ -1,3 +1,4 @@
+import os
 import time
 
 import torch
@@ -8,12 +9,13 @@ from transformers import AutoTokenizer
 
 from gm.hmoe.embeddings_wrapper import EmbeddingsWrapper
 from gm.hmoe.hierarchical_moe import HierarchicalMoE
+from gm.hmoe.scenario import Scenario
 from gm.utils.masking import *
 
 
 def fit(
         model, dataloader, epochs, optimizer, criterion_ce, criterion_mse=None, device=None, log_interval=100,
-        print_usage=False
+        print_usage=False, save_path=None,
 ):
     """
     Universal training function for a model with a new data format
@@ -129,6 +131,9 @@ def fit(
               f'Epoch time: {epoch_time:.2f}s | '
               f'Avg batch time: {avg_batch_time:.4f}s\n')
 
+        if save_path:
+            torch.save(model.state_dict(), f'{save_path}_{epoch}')
+
         # GPU memory measurement
         if torch.cuda.is_available():
             print(f'GPU memory: {torch.cuda.memory_allocated() / 1024 ** 2:.2f} MB')
@@ -202,7 +207,7 @@ class HMoEDataModule:
     def setup(self):
         """Load and prepare data"""
         # Load dataset
-        self.dataset = load_dataset(self.dataset_name, split="train[:1000]")
+        self.dataset = load_dataset(self.dataset_name, split="train[:2000]")
 
         # Tokenize
         self.tokenized_dataset = self.dataset.map(
@@ -211,13 +216,27 @@ class HMoEDataModule:
             remove_columns=self.dataset.column_names,
         )
 
+        splits = self.tokenized_dataset.train_test_split(test_size=0.1)
+
+        self.train_ds = splits["train"]
+        self.test_ds = splits["test"]
+
     def get_dataloader(self):
         """Create DataLoader"""
         return DataLoader(
-            self.tokenized_dataset,
+            self.train_ds,
             batch_size=self.batch_size,
             collate_fn=self.processor.collate_fn,
             shuffle=True,
+        )
+
+    def get_test_dataloader(self):
+        """Create DataLoader"""
+        return DataLoader(
+            self.test_ds,
+            batch_size=1,
+            collate_fn=self.processor.collate_fn,
+            shuffle=False,
         )
 
     @property
@@ -225,19 +244,20 @@ class HMoEDataModule:
         return self.tokenizer.vocab_size
 
 
-# Testing
-if __name__ == '__main__':
+def get_test_scenario():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
 
     # d_model = 768
-    d_model = 32
+    mem_vectors = 64
+    d_model = 128
     dim_feedforward = d_model * 4
-    num_heads = 12
+    num_heads = 4
     train_size = 1000
     batch_size = 8
     # time_steps = 256
-    time_steps = 32
+    time_steps = 64
+    top_k = 4
     lr = 5e-4
 
     data_module = HMoEDataModule(
@@ -248,17 +268,97 @@ if __name__ == '__main__':
     )
     data_module.setup()
     dataloader = data_module.get_dataloader()
+    test_dataloader = data_module.get_test_dataloader()
 
     print('[*] init model')
     inner_model, experts_storage = HierarchicalMoE.create_hierarchical_moe(
-        experts_count=21,
-        chain_sizes=[2, 4, 8],
-        top_k=4,
+        experts_count=100,
+        chain_sizes=[4, 8, 16],
+        top_k=top_k,
         tau=0.25,
-        num_heads=12,
+        num_heads=num_heads,
+        mem_vectors=mem_vectors,
         d_model=d_model,
         dim_feedforward=dim_feedforward,
     )
+    model = EmbeddingsWrapper(inner_model, data_module.vocab_size, d_model)
+    model.to(device)
+
+    MODEL_SAVE_PATH = 'models/hmoe_memory_expert_3.pt'
+    if os.path.exists(MODEL_SAVE_PATH):
+        print(f"[+] Loading model state from {MODEL_SAVE_PATH}")
+        checkpoint = torch.load(MODEL_SAVE_PATH, map_location=device)
+        batch = next(iter(test_dataloader))
+        inputs = batch['input_ids'].to(device)
+        attn_mask = batch['attention_mask'].to(device) if 'attention_mask' in batch else None
+        targets = batch['labels'].to(device)
+        model(inputs, attn_mask)
+        model.load_state_dict(checkpoint)
+    else:
+        print("[*] No saved state found, training model...")
+
+    print(f'[+] HMoE params count: {sum(p.numel() for p in inner_model.parameters())}')
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    # experts_storage.disable_grad()
+
+    '''
+    fit(model, dataloader, optimizer=optimizer, criterion_ce=nn.CrossEntropyLoss(),
+        criterion_mse=nn.MSELoss(), epochs=10, log_interval=5, device=device, print_usage=True)
+    '''
+
+    batch = next(iter(test_dataloader))
+    inputs = batch['input_ids'].to(device)
+    attn_mask = batch['attention_mask'].to(device) if 'attention_mask' in batch else None
+    targets = batch['labels'].to(device)
+    res = model(inputs, attn_mask, create_scenario=True)
+    scenario: Scenario = res['scenario']
+
+    model.eval()
+
+    return model, scenario
+
+
+# Testing
+if __name__ == '__main__':
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(device)
+
+    # d_model = 768
+    mem_vectors = 64
+    d_model = 128
+    dim_feedforward = d_model * 4
+    num_heads = 4
+    train_size = 1000
+    batch_size = 8
+    # time_steps = 256
+    time_steps = 64
+    top_k = 4
+    lr = 5e-4
+
+    data_module = HMoEDataModule(
+        dataset_name="roneneldan/TinyStories",
+        max_length=time_steps,
+        batch_size=batch_size,
+        device=device,
+    )
+    data_module.setup()
+    dataloader = data_module.get_dataloader()
+    test_dataloader = data_module.get_test_dataloader()
+
+    print('[*] init model')
+    inner_model, experts_storage = HierarchicalMoE.create_hierarchical_moe(
+        experts_count=100,
+        chain_sizes=[4, 8, 16],
+        top_k=top_k,
+        tau=0.25,
+        num_heads=num_heads,
+        mem_vectors=mem_vectors,
+        d_model=d_model,
+        dim_feedforward=dim_feedforward,
+    )
+    inner_model: HierarchicalMoE
     model = EmbeddingsWrapper(inner_model, data_module.vocab_size, d_model)
     model.to(device)
 
@@ -267,7 +367,58 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     # experts_storage.disable_grad()
+
+    '''
     fit(model, dataloader, optimizer=optimizer, criterion_ce=nn.CrossEntropyLoss(),
         criterion_mse=nn.MSELoss(), epochs=10, log_interval=5, device=device, print_usage=True)
+    '''
 
-    # fit(primitive_model, dataloader, epochs=10)
+    MODEL_SAVE_PATH = "hmoe_memory_expert.pt_3"
+
+    # load model
+    if os.path.exists(MODEL_SAVE_PATH):
+        print(f"[+] Loading model state from {MODEL_SAVE_PATH}")
+        checkpoint = torch.load(MODEL_SAVE_PATH, map_location=device)
+        batch = next(iter(test_dataloader))
+        inputs = batch['input_ids'].to(device)
+        attn_mask = batch['attention_mask'].to(device) if 'attention_mask' in batch else None
+        targets = batch['labels'].to(device)
+        model(inputs, attn_mask)
+        model.load_state_dict(checkpoint)
+    else:
+        print("[*] No saved state found, training model...")
+
+    fit(
+        model,
+        dataloader,
+        optimizer=optimizer,
+        criterion_ce=nn.CrossEntropyLoss(),
+        criterion_mse=nn.MSELoss(),
+        epochs=10,
+        log_interval=5,
+        device=device,
+        print_usage=True,
+        save_path=MODEL_SAVE_PATH,
+    )
+    # Сохраняем state_dict
+    torch.save(model.state_dict(), MODEL_SAVE_PATH)
+    print(f"[+] Model state saved to {MODEL_SAVE_PATH}")
+
+    '''
+    model.eval()
+    print(model.training)
+    print(model.model.training)
+    batch = next(iter(test_dataloader))
+    inputs = batch['input_ids'].to(device)
+    attn_mask = batch['attention_mask'].to(device) if 'attention_mask' in batch else None
+    targets = batch['labels'].to(device)
+    res = model(inputs, attn_mask, create_scenario=True)
+    scenario: Scenario = res['scenario']
+
+    scenario.latents[2][1][:, :1] += 10 ** 10
+    scenario2 = inner_model.recompute_by_scenario(scenario, 2, 1)
+    print('=' * 100)
+    print(len(scenario2.latents[0]))
+    print(len(scenario2.latents[1]))
+    print(len(scenario2.latents[2]))
+    '''

@@ -6,41 +6,29 @@ from torch import nn
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model=None, key_dim=None, num_heads=8, dropout=0.0, use_bias=True):
+    def __init__(self, d_model, key_dim=None, num_heads=8, dropout=0.0, use_bias=True):
         super().__init__()
 
         self.d_model = d_model
-        self.key_dim = key_dim
+        self.key_dim = key_dim if key_dim is not None else self.d_model
         self.num_heads = num_heads
         self.dropout_rate = dropout
         self.use_bias = use_bias
-        self._built = False
 
-    def _build(self, x):
-        if self._built:
-            return
+        self.W_q = nn.Parameter(torch.empty(self.d_model, self.num_heads, self.key_dim))
+        self.W_k = nn.Parameter(torch.empty(self.d_model, self.num_heads, self.key_dim))
+        self.W_v = nn.Parameter(torch.empty(self.d_model, self.num_heads, self.key_dim))
+        self.b_q = nn.Parameter(torch.zeros(self.num_heads, self.key_dim)) if self.use_bias else None
+        self.b_k = nn.Parameter(torch.zeros(self.num_heads, self.key_dim)) if self.use_bias else None
+        self.b_v = nn.Parameter(torch.zeros(self.num_heads, self.key_dim)) if self.use_bias else None
 
-        if self.d_model is None:
-            self.d_model = x.shape[-1]
-
-        if self.key_dim is None:
-            self.key_dim = self.d_model
-
-        self.W_q = nn.Parameter(torch.empty(self.d_model, self.num_heads, self.key_dim, device=x.device))
-        self.W_k = nn.Parameter(torch.empty(self.d_model, self.num_heads, self.key_dim, device=x.device))
-        self.W_v = nn.Parameter(torch.empty(self.d_model, self.num_heads, self.key_dim, device=x.device))
-        self.b_q = nn.Parameter(torch.zeros(self.num_heads, self.key_dim, device=x.device)) if self.use_bias else None
-        self.b_k = nn.Parameter(torch.zeros(self.num_heads, self.key_dim, device=x.device)) if self.use_bias else None
-        self.b_v = nn.Parameter(torch.zeros(self.num_heads, self.key_dim, device=x.device)) if self.use_bias else None
-
-        self.W_o = nn.Parameter(torch.empty(self.num_heads, self.key_dim, self.d_model, device=x.device))
-        self.b_o = nn.Parameter(torch.zeros(self.d_model, device=x.device)) if self.use_bias else None
+        self.W_o = nn.Parameter(torch.empty(self.num_heads, self.key_dim, self.d_model))
+        self.b_o = nn.Parameter(torch.zeros(self.d_model)) if self.use_bias else None
 
         self.attn_dropout = nn.Dropout(self.dropout_rate)
         self.proj_dropout = nn.Dropout(self.dropout_rate)
 
         self.reset_parameters()
-        self._built = True
 
     def reset_parameters(self):
         for W in (self.W_q, self.W_k, self.W_v, self.W_o):
@@ -59,8 +47,6 @@ class MultiHeadAttention(nn.Module):
             key_padding_mask=None,
             need_weights=False,
     ):
-        self._build(q)
-
         if k is None: k = q
         if v is None: v = k
 

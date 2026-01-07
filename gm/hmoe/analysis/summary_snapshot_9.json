@@ -1,0 +1,7 @@
+{
+  "snapshot": "models/hmoe_memory_expert.pt_9",
+  "positions": 64,
+  "mean_max_prob": 0.20513641834259033,
+  "mean_entropy": 4.189797401428223,
+  "mean_topk_acc": 0.357421875
+}

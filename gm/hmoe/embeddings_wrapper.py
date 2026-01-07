@@ -21,7 +21,7 @@ class EmbeddingsWrapper(nn.Module):
         self.depth = d_model
         self.vocab_size = vocab_size
 
-    def forward(self, input_ids, attention_mask=None):
+    def forward(self, input_ids, attention_mask=None, *args, **kwargs):
         batch_size, seq_length = input_ids.shape
 
         # Token embeddings
@@ -35,7 +35,7 @@ class EmbeddingsWrapper(nn.Module):
         embeddings = token_embeddings + pos_embeddings
 
         # HMoE forward pass
-        res = self.model(embeddings, attention_mask)  # [batch, seq, depth]
+        res = self.model(embeddings, attention_mask, *args, **kwargs)  # [batch, seq, depth]
 
         # Logits for the next token
         res['out'] = self.output_head(res['out'])  # [batch, seq, vocab_size]

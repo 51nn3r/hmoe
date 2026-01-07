@@ -29,7 +29,7 @@ class DeepDarkGate(HMoeComponent):
     def _build(self, x):
         super()._build(x)
 
-    def forward(self, x, attn_mask=None):
+    def forward(self, x, attn_mask=None, *args, **kwargs):
         super().forward(x)
 
         x, attn_mask = self._extend_x_and_mask_with_trainable_vectors(x, attn_mask)
